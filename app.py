@@ -10,10 +10,8 @@ app = Flask(__name__)
 FILE_NAME = "whitenoise.aac"
 PORT = 8000
 
-# Global state
-casts = {}
+# Global state (keep track of active playback threads)
 cast_threads = {}
-browser = None
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -27,13 +25,12 @@ def get_local_ip():
     return IP
 
 def discover_devices():
-    global casts, browser
+    """Scans the network and returns a list of Chromecast objects."""
     print("Starting device discovery...")
-    if browser:
-        pychromecast.discovery.stop_discovery(browser)
     chromecasts, browser = pychromecast.get_chromecasts()
-    casts = {cc.name: cc for cc in chromecasts}
+    pychromecast.discovery.stop_discovery(browser)
     print(f"Found devices: {[cc.name for cc in chromecasts]}")
+    return chromecasts
 
 class CastThread(threading.Thread):
     def __init__(self, cast, stream_url, loop):
@@ -67,8 +64,13 @@ def index():
 
 @app.route('/devices')
 def get_devices():
-    discover_devices()
-    return jsonify([{'name': name} for name in casts.keys()])
+    devices = discover_devices()
+    return jsonify([{'name': cc.name} for cc in devices])
+
+def get_cast_by_name(name):
+    """Finds a specific Chromecast by its friendly name."""
+    chromecasts = discover_devices()
+    return next((cc for cc in chromecasts if cc.name == name), None)
 
 @app.route('/play', methods=['POST'])
 def play():
@@ -77,7 +79,7 @@ def play():
     volume = data.get('volume', 0.1)
     loop = data.get('loop', True)
 
-    cast = casts.get(device_name)
+    cast = get_cast_by_name(device_name)
     if not cast:
         return jsonify({'status': 'error', 'message': 'Device not found'}), 404
 
@@ -105,9 +107,13 @@ def stop():
     data = request.json
     device_name = data.get('device_name')
 
+    cast = get_cast_by_name(device_name)
+    if cast:
+        cast.quit_app()
+
     if device_name in cast_threads:
         cast_threads[device_name].stop()
-        cast_threads[device_name].join()  # Wait for the old thread to finish
+        cast_threads[device_name].join()
         del cast_threads[device_name]
 
     return jsonify({'status': 'stopped'})
@@ -118,11 +124,12 @@ def set_volume():
     device_name = data.get('device_name')
     volume = data.get('volume')
 
-    cast = casts.get(device_name)
+    cast = get_cast_by_name(device_name)
     if not cast:
         return jsonify({'status': 'error', 'message': 'Device not found'}), 404
 
     print(f"[{device_name}] Setting volume to {volume}")
+    cast.wait()
     cast.set_volume(volume)
     return jsonify({'status': 'volume updated'})
 
