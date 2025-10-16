@@ -1,3 +1,4 @@
+import atexit
 import logging
 import os
 import socket
@@ -215,7 +216,6 @@ def stream_file():
     return send_from_directory(os.getcwd(), FILE_NAME)
 
 # --- Application Startup ---
-import atexit
 start_discovery()
 atexit.register(stop_discovery)
 
