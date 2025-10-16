@@ -67,6 +67,7 @@ def index():
 
 @app.route('/devices')
 def get_devices():
+    discover_devices()
     return jsonify([{'name': name} for name in casts.keys()])
 
 @app.route('/play', methods=['POST'])
@@ -130,5 +131,4 @@ def stream_file():
     return send_from_directory(os.getcwd(), FILE_NAME)
 
 if __name__ == '__main__':
-    discover_devices()
     app.run(host='0.0.0.0', port=PORT, debug=True)
