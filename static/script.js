@@ -29,7 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 devicesSelect.appendChild(option);
             });
 
-            if (data.playing_device) {
+            // Set the default selection
+            if (data.devices.includes("Alejandro")) {
+                devicesSelect.value = "Alejandro";
+            } else if (data.playing_device) {
                 devicesSelect.value = data.playing_device;
             } else if (currentSelection && data.devices.includes(currentSelection)) {
                 devicesSelect.value = currentSelection;
