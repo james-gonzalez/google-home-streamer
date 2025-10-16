@@ -214,8 +214,10 @@ def set_volume():
 def stream_file():
     return send_from_directory(os.getcwd(), FILE_NAME)
 
+# --- Application Startup ---
+import atexit
+start_discovery()
+atexit.register(stop_discovery)
+
 if __name__ == "__main__":
-    start_discovery()
-    import atexit
-    atexit.register(stop_discovery)
     app.run(host="0.0.0.0", port=PORT, debug=True, use_reloader=False)
