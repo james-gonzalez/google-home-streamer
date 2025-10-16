@@ -5,11 +5,11 @@ import time
 import os
 import socket
 import logging
+from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("zeroconf").setLevel(logging.ERROR)
-
 
 app = Flask(__name__)
 
@@ -19,40 +19,49 @@ PORT = 8000
 # --- Global state for discovery and playback ---
 cast_threads = {}
 discovered_casts = {}
-discovery_browser = None
+browser = None
 discovery_lock = threading.Lock()
+zconf = None
 
-class MyDiscoveryListener(pychromecast.discovery.AbstractDiscoveryListener):
+class MyCastListener(pychromecast.CastListener):
     """Listener for discovering and removing Chromecasts."""
-    def add_cast(self, cast_info):
+    def add_cast(self, uuid, service):
         with discovery_lock:
-            discovered_casts[cast_info.friendly_name] = cast_info
-            print(f"Discovered: {cast_info.friendly_name}")
+            # The browser object is needed to get the full cast info
+            cast = browser.devices[uuid]
+            discovered_casts[cast.friendly_name] = cast
+            print(f"Discovered: {cast.friendly_name}")
 
-    def remove_cast(self, cast_info):
+    def remove_cast(self, uuid, service, cast):
         with discovery_lock:
-            if cast_info.friendly_name in discovered_casts:
-                del discovered_casts[cast_info.friendly_name]
-                print(f"Removed: {cast_info.friendly_name}")
+            if cast.friendly_name in discovered_casts:
+                del discovered_casts[cast.friendly_name]
+                print(f"Removed: {cast.friendly_name}")
 
 def start_discovery():
     """Starts the background discovery browser."""
-    global discovery_browser
+    global browser, zconf
     print("Starting background device discovery...")
-    discovery_browser = pychromecast.start_discovery(MyDiscoveryListener())
+    zconf = Zeroconf()
+    listener = MyCastListener()
+    browser = pychromecast.CastBrowser(listener, zconf)
+    listener.browser = browser  # Give listener a reference to the browser
+    browser.start_discovery()
 
 def stop_discovery():
     """Stops the background discovery browser."""
-    if discovery_browser:
+    if browser:
         print("Stopping background device discovery...")
-        pychromecast.stop_discovery(discovery_browser)
+        browser.stop_discovery()
+    if zconf:
+        zconf.close()
 
 def get_cast(name):
     """Get a Chromecast object from a friendly name."""
     with discovery_lock:
         cast_info = discovered_casts.get(name)
     if cast_info:
-        return pychromecast.get_chromecast_from_cast_info(cast_info)
+        return pychromecast.get_chromecast_from_cast_info(cast_info, zconf)
     return None
 
 # --- Utility and Playback Thread ---
@@ -109,7 +118,6 @@ def index():
 @app.route("/devices")
 def get_devices():
     with discovery_lock:
-        # Sort the device names alphabetically for a consistent UI
         device_names = sorted(discovered_casts.keys())
     return jsonify([{"name": name} for name in device_names])
 
@@ -148,13 +156,11 @@ def stop():
     data = request.json
     device_name = data.get("device_name")
 
-    # Stop the thread first
     if device_name in cast_threads:
         cast_threads[device_name].stop()
         cast_threads[device_name].join()
         del cast_threads[device_name]
 
-    # Then quit the app on the device
     cast = get_cast(device_name)
     if cast:
         cast.wait()

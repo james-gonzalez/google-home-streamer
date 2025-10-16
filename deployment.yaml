@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: google-home-streamer
+  labels:
+    app: google-home-streamer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: google-home-streamer
+  template:
+    metadata:
+      labels:
+        app: google-home-streamer
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: streamer
+        image: ghcr.io/james-gonzalez/google-home-streamer:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
