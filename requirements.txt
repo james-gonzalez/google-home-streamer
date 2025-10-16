@@ -1,5 +1,3 @@
-pychromecast
-zeroconf
-Flask
-pytest
-ruff
+Flask==3.0.3
+pychromecast==15.1.1
+gunicorn==22.0.0
