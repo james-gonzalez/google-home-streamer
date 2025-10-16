@@ -12,18 +12,29 @@ document.addEventListener('DOMContentLoaded', () => {
         volumeLabel.textContent = `${volumeSlider.value}%`;
     };
 
-    const getDevices = async () => {
+    const updateStatus = async () => {
         statusDiv.textContent = 'Scanning for devices...';
         try {
-            const response = await fetch('/devices');
-            const devices = await response.json();
+            const response = await fetch('/status');
+            const data = await response.json();
+            console.log("Received data:", data); // Log the data for debugging
+
+            const currentSelection = devicesSelect.value;
+            
             devicesSelect.innerHTML = '';
-            devices.forEach(device => {
+            data.devices.forEach(device => {
                 const option = document.createElement('option');
-                option.value = device.name;
-                option.textContent = device.name;
+                option.value = device;
+                option.textContent = device;
                 devicesSelect.appendChild(option);
             });
+
+            if (data.playing_device) {
+                devicesSelect.value = data.playing_device;
+            } else if (currentSelection && data.devices.includes(currentSelection)) {
+                devicesSelect.value = currentSelection;
+            }
+
             statusDiv.textContent = 'Scan complete.';
         } catch (error) {
             statusDiv.textContent = 'Error finding devices.';
@@ -51,6 +62,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }),
             });
             statusDiv.textContent = `Playback ${action}ed.`;
+            // Refresh the status to update the UI
+            await updateStatus();
         } catch (error) {
             statusDiv.textContent = `Error ${action}ing playback.`;
             console.error(error);
@@ -60,7 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const setVolume = async () => {
         const device = devicesSelect.value;
         if (!device) {
-            return; // Don't do anything if no device is selected
+            return;
         }
         try {
             await fetch('/volume', {
@@ -79,13 +92,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    refreshButton.addEventListener('click', getDevices);
+    refreshButton.addEventListener('click', updateStatus);
     volumeSlider.addEventListener('input', updateVolumeLabel);
-    volumeSlider.addEventListener('change', setVolume); // Send volume on release
+    volumeSlider.addEventListener('change', setVolume);
     playButton.addEventListener('click', () => controlPlayback('play'));
     stopButton.addEventListener('click', () => controlPlayback('stop'));
 
     // Initial load
     updateVolumeLabel();
-    getDevices();
+    updateStatus();
 });

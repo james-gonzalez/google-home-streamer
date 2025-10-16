@@ -22,6 +22,8 @@ discovered_casts = {}
 browser = None
 discovery_lock = threading.Lock()
 zconf = None
+active_cast_name = None
+state_lock = threading.Lock()
 
 class MyCastListener(pychromecast.CastListener):
     """Listener for discovering and removing Chromecasts."""
@@ -31,6 +33,9 @@ class MyCastListener(pychromecast.CastListener):
             cast = browser.devices[uuid]
             discovered_casts[cast.friendly_name] = cast
             print(f"Discovered: {cast.friendly_name}")
+
+    def update_cast(self, uuid, service):
+        self.add_cast(uuid, service)
 
     def remove_cast(self, uuid, service, cast):
         with discovery_lock:
@@ -97,14 +102,14 @@ class CastThread(threading.Thread):
                 and self.mc.status.player_state == "IDLE"
                 and self.mc.status.idle_reason == "FINISHED"
             ):
-                print(f"[{self.cast.friendly_name}] Looping...")
+                print(f"[{self.cast.name}] Looping...")
                 self.mc.play_media(self.stream_url, "audio/aac")
                 self.mc.block_until_active()
             time.sleep(1)
         
         if self.mc.status.player_state != 'IDLE':
             self.mc.stop()
-        print(f"[{self.cast.friendly_name}] Playback stopped.")
+        print(f"[{self.cast.name}] Playback stopped.")
 
     def stop(self):
         self.stop_event.set()
@@ -115,14 +120,17 @@ class CastThread(threading.Thread):
 def index():
     return render_template("index.html")
 
-@app.route("/devices")
-def get_devices():
+@app.route("/status")
+def get_status():
     with discovery_lock:
         device_names = sorted(discovered_casts.keys())
-    return jsonify([{"name": name} for name in device_names])
+    with state_lock:
+        active_device = active_cast_name
+    return jsonify({"devices": device_names, "playing_device": active_device})
 
 @app.route("/play", methods=["POST"])
 def play():
+    global active_cast_name
     data = request.json
     device_name = data.get("device_name")
     volume = data.get("volume", 0.1)
@@ -132,9 +140,19 @@ def play():
     if not cast:
         return jsonify({"status": "error", "message": "Device not found"}), 404
 
-    if device_name in cast_threads:
-        cast_threads[device_name].stop()
-        cast_threads[device_name].join()
+    # Stop all other playing threads to ensure only one stream is active
+    with state_lock:
+        for name, thread in list(cast_threads.items()):
+            if name != device_name:
+                print(f"Stopping playback on {name} to switch to {device_name}")
+                thread.stop()
+                thread.join()
+                del cast_threads[name]
+        
+        # Stop the current thread if it exists, to restart it
+        if device_name in cast_threads:
+            cast_threads[device_name].stop()
+            cast_threads[device_name].join()
 
     cast.wait()
     print(f"[{device_name}] Quitting current app to ensure clean state.")
@@ -149,10 +167,14 @@ def play():
     cast_threads[device_name] = thread
     thread.start()
 
+    with state_lock:
+        active_cast_name = device_name
+
     return jsonify({"status": "playing"})
 
 @app.route("/stop", methods=["POST"])
 def stop():
+    global active_cast_name
     data = request.json
     device_name = data.get("device_name")
 
@@ -165,6 +187,10 @@ def stop():
     if cast:
         cast.wait()
         cast.quit_app()
+
+    with state_lock:
+        if active_cast_name == device_name:
+            active_cast_name = None
 
     return jsonify({"status": "stopped"})
 

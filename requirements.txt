@@ -1,3 +1,5 @@
 pychromecast
 zeroconf
 Flask
+pytest
+ruff
