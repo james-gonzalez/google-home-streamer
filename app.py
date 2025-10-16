@@ -1,10 +1,11 @@
-from flask import Flask, render_template, jsonify, request, send_from_directory
-import pychromecast
-import threading
-import time
+import logging
 import os
 import socket
-import logging
+import threading
+import time
+
+import pychromecast
+from flask import Flask, jsonify, render_template, request, send_from_directory
 from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
@@ -106,7 +107,7 @@ class CastThread(threading.Thread):
                 self.mc.play_media(self.stream_url, "audio/aac")
                 self.mc.block_until_active()
             time.sleep(1)
-        
+
         if self.mc.status.player_state != 'IDLE':
             self.mc.stop()
         print(f"[{self.cast.name}] Playback stopped.")
@@ -148,7 +149,7 @@ def play():
                 thread.stop()
                 thread.join()
                 del cast_threads[name]
-        
+
         # Stop the current thread if it exists, to restart it
         if device_name in cast_threads:
             cast_threads[device_name].stop()
