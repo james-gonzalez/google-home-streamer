@@ -4,15 +4,20 @@ import os
 import socket
 import threading
 import time
-
-from typing import Dict, Optional, Any
-
-from uuid import UUID
+from typing import Any, Dict, Optional
 
 import pychromecast
-from flask import Flask, Response, jsonify, make_response, render_template, request, send_from_directory
-from pychromecast.discovery import AbstractCastListener, CastBrowser, CastInfo
-from zeroconf import ServiceInfo, Zeroconf
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    make_response,
+    render_template,
+    request,
+    send_from_directory,
+)
+from pychromecast.discovery import CastBrowser, CastInfo
+from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
 logging.basicConfig(level=logging.INFO)
@@ -48,13 +53,11 @@ class MyCastListener(pychromecast.CastListener):
     def update_cast(self, uuid: str, service: Any) -> None:
         self.add_cast(uuid, service)
 
-    def remove_cast(
-        self, uuid: str, service: Any, cast: "pychromecast.Chromecast"  # type: ignore[override]
-    ) -> None:
+    def remove_cast(self, uuid: str, service: Any, cast_info: CastInfo) -> None:  # type: ignore[override]
         with discovery_lock:
-            if cast.name in discovered_casts:
-                del discovered_casts[cast.name]
-                print(f"Removed: {cast.name}")
+            if cast_info.friendly_name in discovered_casts:
+                del discovered_casts[cast_info.friendly_name]
+                print(f"Removed: {cast_info.friendly_name}")
 
 
 def start_discovery() -> None:
