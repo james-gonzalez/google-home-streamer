@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Home Streamer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Google Home Streamer</h1>
+        <div class="controls">
+            <label for="devices">Select a Speaker:</label>
+            <select id="devices"></select>
+            <button id="refresh">Refresh</button>
+        </div>
+        <div class="controls">
+            <label for="volume">Volume:</label>
+            <input type="range" id="volume" min="0" max="100" value="10">
+            <span id="volume-label">10%</span>
+        </div>
+        <div class="controls">
+            <label for="loop">Loop:</label>
+            <input type="checkbox" id="loop" checked>
+        </div>
+        <div class="playback-controls">
+            <button id="play">Play</button>
+            <button id="stop">Stop</button>
+        </div>
+        <div id="status"></div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
