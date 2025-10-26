@@ -16,7 +16,7 @@ from flask import (
     request,
     send_from_directory,
 )
-from pychromecast.discovery import CastBrowser, CastInfo
+from pychromecast.discovery import AbstractCastListener, CastBrowser, CastInfo
 from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
@@ -38,26 +38,34 @@ active_cast_name: Optional[str] = None
 state_lock = threading.Lock()
 
 
-class MyCastListener(pychromecast.CastListener):
+class MyCastListener(AbstractCastListener):
     """Listener for discovering and removing Chromecasts."""
 
+    def __init__(self) -> None:
+        self._browser: Optional[CastBrowser] = None
+
+    def bind(self, cast_browser: CastBrowser) -> None:
+        """Attach the active CastBrowser so callbacks can access device metadata."""
+        self._browser = cast_browser
+
     def add_cast(self, uuid: str, service: Any) -> None:
-        with discovery_lock:
-            # The browser object is needed to get the full cast info
-            if browser:
-                cast = browser.devices[uuid]  # type: ignore[index]
-                if cast.friendly_name:
-                    discovered_casts[cast.friendly_name] = cast
-                    print(f"Discovered: {cast.friendly_name}")
+        if not self._browser:
+            return
+        cast_info = self._browser.devices.get(uuid)
+        if cast_info and cast_info.friendly_name:
+            with discovery_lock:
+                discovered_casts[cast_info.friendly_name] = cast_info
+            print(f"Discovered: {cast_info.friendly_name}")
 
     def update_cast(self, uuid: str, service: Any) -> None:
         self.add_cast(uuid, service)
 
-    def remove_cast(self, uuid: str, service: Any, cast_info: CastInfo) -> None:  # type: ignore[override]
-        with discovery_lock:
-            if cast_info.friendly_name in discovered_casts:
-                del discovered_casts[cast_info.friendly_name]
-                print(f"Removed: {cast_info.friendly_name}")
+    def remove_cast(self, uuid: str, service: Any, cast_info: CastInfo) -> None:
+        if cast_info.friendly_name:
+            with discovery_lock:
+                if cast_info.friendly_name in discovered_casts:
+                    del discovered_casts[cast_info.friendly_name]
+                    print(f"Removed: {cast_info.friendly_name}")
 
 
 def start_discovery() -> None:
@@ -66,7 +74,8 @@ def start_discovery() -> None:
     print("Starting background device discovery...")
     zconf = Zeroconf()
     listener = MyCastListener()
-    browser = pychromecast.CastBrowser(listener, zconf)  # type: ignore[arg-type]
+    browser = CastBrowser(listener, zconf)
+    listener.bind(browser)
     browser.start_discovery()
 
 
