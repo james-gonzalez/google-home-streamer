@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: google-home-streamer
+  name: streamer
   labels:
-    app: google-home-streamer
+    app: streamer
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: google-home-streamer
+      app: streamer
   template:
     metadata:
       labels:
-        app: google-home-streamer
+        app: streamer
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
