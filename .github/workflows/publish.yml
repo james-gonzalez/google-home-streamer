@@ -20,6 +20,11 @@ jobs:
           fetch-depth: 0
           lfs: true
 
+      - name: Ensure Git LFS media
+        run: |
+          git lfs install --local --force
+          git lfs pull
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
