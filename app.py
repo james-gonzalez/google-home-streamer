@@ -246,8 +246,8 @@ def stop() -> Response:
     if thread:
         thread.stop()
         thread.join()
+    cast = thread.cast if thread else get_cast(device_name)
 
-    cast = get_cast(device_name)
     if cast:
         cast.wait()
         cast.media_controller.stop()
