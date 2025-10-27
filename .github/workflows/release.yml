@@ -32,10 +32,10 @@ jobs:
 
       - name: Verify LFS asset
         run: |
-          ls -lh whitenoise.aac
-          file whitenoise.aac
-          if head -n 1 whitenoise.aac | grep -q "version https://git-lfs.github.com/spec/v1"; then
-            echo "::error::whitenoise.aac is still an LFS pointer"
+          ls -lh white-noise-20m.mp3
+          file white-noise-20m.mp3
+          if head -n 1 white-noise-20m.mp3 | grep -q "version https://git-lfs.github.com/spec/v1"; then
+            echo "::error::white-noise-20m.mp3 is still an LFS pointer"
             exit 1
           fi
 
