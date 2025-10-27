@@ -232,14 +232,15 @@ def stop() -> Response:
         )
     device_name = data.get("device_name")
 
-    if device_name in cast_threads:
-        cast_threads[device_name].stop()
-        cast_threads[device_name].join()
-        del cast_threads[device_name]
+    thread = cast_threads.pop(device_name, None)
+    if thread:
+        thread.stop()
+        thread.join()
 
     cast = get_cast(device_name)
     if cast:
         cast.wait()
+        cast.media_controller.stop()
         cast.quit_app()
 
     with state_lock:
