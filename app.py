@@ -250,7 +250,11 @@ def stop() -> Response:
 
     if cast:
         cast.wait()
-        cast.media_controller.stop()
+        if cast.media_controller.is_playing:
+            try:
+                cast.media_controller.stop()
+            except Exception as err:  # pychromecast raises RequestFailed
+                logging.warning("Stop command failed for %s: %s", cast.name, err)
         cast.quit_app()
 
     return jsonify({"status": "stopped"})
