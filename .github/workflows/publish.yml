@@ -21,9 +21,21 @@ jobs:
           lfs: true
 
       - name: Ensure Git LFS media
+        env:
+          GIT_LFS_SKIP_SMUDGE: "0"
         run: |
           git lfs install --local --force
-          git lfs pull
+          git lfs fetch --all
+          git lfs checkout
+
+      - name: Verify LFS asset
+        run: |
+          ls -lh whitenoise.aac
+          file whitenoise.aac
+          if head -n 1 whitenoise.aac | grep -q "version https://git-lfs.github.com/spec/v1"; then
+            echo "::error::whitenoise.aac is still an LFS pointer"
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
