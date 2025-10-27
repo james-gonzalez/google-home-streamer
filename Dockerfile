@@ -1,5 +1,5 @@
 # Use an official Python runtime as a parent image
-FROM python:3.12-slim-bullseye
+FROM python:3.14-slim-bullseye
 
 # Set the working directory in the container
 WORKDIR /app
@@ -20,5 +20,5 @@ EXPOSE 8000
 # Define environment variable
 ENV FLASK_APP app.py
 
-# Run app.py with gunicorn when the container launches
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+# Run app.py with gunicorn when the container launches (long timeout for streaming)
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--timeout", "1800", "--graceful-timeout", "1800", "app:app"]

@@ -25,7 +25,7 @@ logging.getLogger("zeroconf").setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-FILE_NAME: str = "whitenoise.aac"
+FILE_NAME: str = "white-noise-20m.mp3"
 PORT: int = 8000
 
 # --- Global state for discovery and playback ---
@@ -124,7 +124,7 @@ class CastThread(threading.Thread):
         self.stop_event = threading.Event()
 
     def run(self) -> None:
-        self.mc.play_media(self.stream_url, "audio/aac")
+        self.mc.play_media(self.stream_url, "audio/mpeg")
         self.mc.block_until_active()
         time.sleep(2)
 
@@ -136,7 +136,7 @@ class CastThread(threading.Thread):
                 and self.mc.status.idle_reason == "FINISHED"
             ):
                 print(f"[{self.cast.name}] Looping...")
-                self.mc.play_media(self.stream_url, "audio/aac")
+                self.mc.play_media(self.stream_url, "audio/mpeg")
                 self.mc.block_until_active()
             time.sleep(1)
 
@@ -282,6 +282,7 @@ def set_volume() -> Response:
 @app.route("/stream")
 def stream_file() -> Response:
     return send_from_directory(os.getcwd(), FILE_NAME)
+
 
 # --- Application Startup ---
 start_discovery()
