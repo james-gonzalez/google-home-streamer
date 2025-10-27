@@ -17,6 +17,7 @@ from flask import (
     send_from_directory,
 )
 from pychromecast.discovery import AbstractCastListener, CastBrowser, CastInfo
+from pychromecast.error import RequestFailed
 from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
@@ -250,10 +251,14 @@ def stop() -> Response:
 
     if cast:
         cast.wait()
-        if cast.media_controller.is_playing:
+        status = cast.media_controller.status
+        is_active = bool(
+            status and getattr(status, "player_state", "").upper() not in ("", "IDLE")
+        )
+        if is_active:
             try:
                 cast.media_controller.stop()
-            except Exception as err:  # pychromecast raises RequestFailed
+            except RequestFailed as err:
                 logging.warning("Stop command failed for %s: %s", cast.name, err)
         cast.quit_app()
 
