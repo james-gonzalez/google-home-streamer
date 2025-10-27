@@ -17,7 +17,6 @@ from flask import (
     send_from_directory,
 )
 from pychromecast.discovery import CastBrowser, CastInfo
-from pychromecast.error import RequestFailed
 from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
@@ -59,6 +58,7 @@ class MyCastListener(pychromecast.CastListener):
             if cast_info.friendly_name in discovered_casts:
                 del discovered_casts[cast_info.friendly_name]
                 print(f"Removed: {cast_info.friendly_name}")
+
 
 def start_discovery() -> None:
     """Starts the background discovery browser."""
@@ -181,24 +181,18 @@ def play() -> Response:
         )
 
     # Stop all other playing threads to ensure only one stream is active
-    threads_to_stop = []
     with state_lock:
         for name, thread in list(cast_threads.items()):
             if name != device_name:
                 print(f"Stopping playback on {name} to switch to {device_name}")
-                threads_to_stop.append((name, thread))
+                thread.stop()
+                thread.join()
                 del cast_threads[name]
 
         # Stop the current thread if it exists, to restart it
-        current_thread = cast_threads.pop(device_name, None)
-
-    for _, thread in threads_to_stop:
-        thread.stop()
-        thread.join()
-
-    if current_thread:
-        current_thread.stop()
-        current_thread.join()
+        if device_name in cast_threads:
+            cast_threads[device_name].stop()
+            cast_threads[device_name].join()
 
     cast.wait()
     print(f"[{device_name}] Quitting current app to ensure clean state.")
@@ -210,10 +204,10 @@ def play() -> Response:
     stream_url = f"http://{ip_address}:{PORT}/stream"
 
     thread = CastThread(cast, stream_url, loop)
+    cast_threads[device_name] = thread
     thread.start()
 
     with state_lock:
-        cast_threads[device_name] = thread
         active_cast_name = device_name
 
     return jsonify({"status": "playing"})
@@ -229,28 +223,19 @@ def stop() -> Response:
         )
     device_name = data.get("device_name")
 
-    with state_lock:
-        thread = cast_threads.pop(device_name, None)
-        if active_cast_name == device_name:
-            active_cast_name = None
+    if device_name in cast_threads:
+        cast_threads[device_name].stop()
+        cast_threads[device_name].join()
+        del cast_threads[device_name]
 
-    if thread:
-        thread.stop()
-        thread.join()
-    cast = thread.cast if thread else get_cast(device_name)
-
+    cast = get_cast(device_name)
     if cast:
         cast.wait()
-        status = cast.media_controller.status
-        is_active = bool(
-            status and getattr(status, "player_state", "").upper() not in ("", "IDLE")
-        )
-        if is_active:
-            try:
-                cast.media_controller.stop()
-            except RequestFailed as err:
-                logging.warning("Stop command failed for %s: %s", cast.name, err)
         cast.quit_app()
+
+    with state_lock:
+        if active_cast_name == device_name:
+            active_cast_name = None
 
     return jsonify({"status": "stopped"})
 
@@ -288,7 +273,6 @@ def set_volume() -> Response:
 @app.route("/stream")
 def stream_file() -> Response:
     return send_from_directory(os.getcwd(), FILE_NAME)
-
 
 # --- Application Startup ---
 start_discovery()
