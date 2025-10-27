@@ -190,18 +190,24 @@ def play() -> Response:
         )
 
     # Stop all other playing threads to ensure only one stream is active
+    threads_to_stop = []
     with state_lock:
         for name, thread in list(cast_threads.items()):
             if name != device_name:
                 print(f"Stopping playback on {name} to switch to {device_name}")
-                thread.stop()
-                thread.join()
+                threads_to_stop.append((name, thread))
                 del cast_threads[name]
 
         # Stop the current thread if it exists, to restart it
-        if device_name in cast_threads:
-            cast_threads[device_name].stop()
-            cast_threads[device_name].join()
+        current_thread = cast_threads.pop(device_name, None)
+
+    for _, thread in threads_to_stop:
+        thread.stop()
+        thread.join()
+
+    if current_thread:
+        current_thread.stop()
+        current_thread.join()
 
     cast.wait()
     print(f"[{device_name}] Quitting current app to ensure clean state.")
@@ -213,10 +219,10 @@ def play() -> Response:
     stream_url = f"http://{ip_address}:{PORT}/stream"
 
     thread = CastThread(cast, stream_url, loop)
-    cast_threads[device_name] = thread
     thread.start()
 
     with state_lock:
+        cast_threads[device_name] = thread
         active_cast_name = device_name
 
     return jsonify({"status": "playing"})
@@ -232,7 +238,11 @@ def stop() -> Response:
         )
     device_name = data.get("device_name")
 
-    thread = cast_threads.pop(device_name, None)
+    with state_lock:
+        thread = cast_threads.pop(device_name, None)
+        if active_cast_name == device_name:
+            active_cast_name = None
+
     if thread:
         thread.stop()
         thread.join()
@@ -242,10 +252,6 @@ def stop() -> Response:
         cast.wait()
         cast.media_controller.stop()
         cast.quit_app()
-
-    with state_lock:
-        if active_cast_name == device_name:
-            active_cast_name = None
 
     return jsonify({"status": "stopped"})
 
