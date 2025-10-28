@@ -21,4 +21,4 @@ EXPOSE 8000
 ENV FLASK_APP app.py
 
 # Run app.py with gunicorn when the container launches (long timeout for streaming)
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--timeout", "1800", "--graceful-timeout", "1800", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "2", "--timeout", "1800", "--graceful-timeout", "1800", "app:app"]
