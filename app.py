@@ -17,6 +17,7 @@ from flask import (
     send_from_directory,
 )
 from pychromecast.discovery import CastBrowser, CastInfo
+from pychromecast.error import NotConnected, PyChromecastError, RequestFailed
 from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
@@ -24,9 +25,11 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("zeroconf").setLevel(logging.ERROR)
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 
 FILE_NAME: str = "white-noise-20m.mp3"
 PORT: int = 8000
+STREAM_URL: Optional[str] = os.getenv("STREAM_URL")
 
 # --- Global state for discovery and playback ---
 cast_threads: Dict[str, "CastThread"] = {}
@@ -131,8 +134,28 @@ class CastThread(threading.Thread):
                 self.mc.block_until_active()
             time.sleep(1)
 
-        if self.mc.status and self.mc.status.player_state != "IDLE":
-            self.mc.stop()
+        try:
+            self.mc.update_status()
+        except PyChromecastError as err:
+            logger.debug(
+                "[%s] Unable to refresh status before stopping: %s", self.cast.name, err
+            )
+        status = self.mc.status
+
+        if status and status.player_state != "IDLE":
+            try:
+                self.mc.stop()
+            except RequestFailed:
+                logger.warning(
+                    "[%s] Stop command rejected; media session already inactive",
+                    self.cast.name,
+                )
+            except (NotConnected, PyChromecastError) as err:
+                logger.warning(
+                    "[%s] Stop command failed due to connection issue: %s",
+                    self.cast.name,
+                    err,
+                )
         print(f"[{self.cast.name}] Playback stopped.")
 
     def stop(self) -> None:
@@ -200,8 +223,11 @@ def play() -> Response:
     time.sleep(1)
     cast.set_volume(volume)
 
-    ip_address = get_local_ip()
-    stream_url = f"http://{ip_address}:{PORT}/stream"
+    if STREAM_URL:
+        stream_url = STREAM_URL
+    else:
+        ip_address = get_local_ip()
+        stream_url = f"http://{ip_address}:{PORT}/stream"
 
     thread = CastThread(cast, stream_url, loop)
     cast_threads[device_name] = thread
