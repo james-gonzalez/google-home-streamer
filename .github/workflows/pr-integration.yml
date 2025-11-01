@@ -48,6 +48,7 @@ jobs:
       - name: Deploy to cluster
         run: |
           kubectl apply -f deployment.yaml
+          kubectl patch deployment/streamer --type='json' -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
           kubectl set image deployment/streamer streamer=streamer:test
 
       - name: Wait for rollout
