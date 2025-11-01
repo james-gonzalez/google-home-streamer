@@ -83,3 +83,5 @@ This project uses a fully automated CI/CD pipeline powered by GitHub Actions. Wh
 2.  **Testing:** The application is tested using `pytest`.
 3.  **Semantic Release:** The commit messages are analyzed to automatically determine the next version number. A new GitHub Release is created with a changelog.
 4.  **Publish Container:** A multi-platform (amd64, arm64) container image is built and pushed to the GitHub Container Registry, tagged with `latest` and the new version number.
+
+Pull requests also trigger a Kind-based integration workflow that builds the container locally, deploys it to a temporary Kubernetes cluster, and waits for the health probes to succeed before allowing merges.
