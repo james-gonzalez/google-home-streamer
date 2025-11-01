@@ -48,6 +48,13 @@ uv sync --extra dev --no-install-project
 .venv/bin/pytest
 ```
 
+### Health Checks
+
+The service exposes health probes suitable for container orchestration:
+
+- `GET /health/live` validates the Zeroconf discovery thread and confirms the audio asset is readable. Failures here signal the container should be restarted.
+- `GET /health/ready` extends the checks above and ensures any active playback threads are still alive before the instance receives traffic.
+
 ### Running with a Container
 
 The application is published as a multi-platform container image to the GitHub Container Registry.

@@ -4,7 +4,7 @@ import os
 import socket
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import pychromecast
 from flask import (
@@ -39,6 +39,8 @@ discovery_lock = threading.Lock()
 zconf: Optional[Zeroconf] = None
 active_cast_name: Optional[str] = None
 state_lock = threading.Lock()
+
+HealthReport = Dict[str, Dict[str, Any]]
 
 
 class MyCastListener(pychromecast.CastListener):
@@ -163,6 +165,68 @@ class CastThread(threading.Thread):
 
 
 # --- Flask Routes ---
+
+
+def _check_discovery() -> Tuple[bool, str]:
+    with discovery_lock:
+        current_browser = browser
+        current_zconf = zconf
+
+    if not current_browser:
+        return False, "Chromecast discovery not initialized"
+    if current_zconf is None:
+        return False, "Zeroconf instance missing"
+
+    zc_browser = getattr(current_browser, "_zc_browser", None)
+    if zc_browser is None:
+        return False, "Underlying zeroconf browser not available"
+    if not zc_browser.is_alive():
+        return False, "Discovery thread not running"
+
+    return True, "Discovery thread healthy"
+
+
+def _check_stream_asset() -> Tuple[bool, str]:
+    file_path = os.path.join(os.getcwd(), FILE_NAME)
+    if not os.path.isfile(file_path):
+        return False, f"Stream asset {FILE_NAME} not found"
+    if not os.access(file_path, os.R_OK):
+        return False, f"Stream asset {FILE_NAME} is not readable"
+    if os.path.getsize(file_path) == 0:
+        return False, f"Stream asset {FILE_NAME} is empty"
+
+    return True, "Stream asset available"
+
+
+def _check_playback_threads() -> Tuple[bool, str]:
+    with state_lock:
+        snapshot = list(cast_threads.items())
+
+    inactive = [name for name, thread in snapshot if not thread.is_alive()]
+    if inactive:
+        return False, f"Playback threads not running: {', '.join(inactive)}"
+
+    return True, "All playback threads healthy"
+
+
+def _evaluate_health(include_readiness_checks: bool) -> Tuple[bool, HealthReport]:
+    checks: HealthReport = {}
+    ok = True
+
+    discovery_ok, discovery_detail = _check_discovery()
+    checks["chromecast_discovery"] = {"ok": discovery_ok, "detail": discovery_detail}
+    ok = ok and discovery_ok
+
+    asset_ok, asset_detail = _check_stream_asset()
+    checks["stream_asset"] = {"ok": asset_ok, "detail": asset_detail}
+    ok = ok and asset_ok
+
+    if include_readiness_checks:
+        playback_ok, playback_detail = _check_playback_threads()
+        checks["playback_threads"] = {"ok": playback_ok, "detail": playback_detail}
+        ok = ok and playback_ok
+
+    return ok, checks
 
 
 @app.route("/")
@@ -299,6 +363,22 @@ def set_volume() -> Response:
 @app.route("/stream")
 def stream_file() -> Response:
     return send_from_directory(os.getcwd(), FILE_NAME)
+
+
+@app.route("/health/live")
+def health_live() -> Response:
+    healthy, checks = _evaluate_health(include_readiness_checks=False)
+    status = "ok" if healthy else "error"
+    code = 200 if healthy else 500
+    return jsonify({"status": status, "checks": checks}), code
+
+
+@app.route("/health/ready")
+def health_ready() -> Response:
+    healthy, checks = _evaluate_health(include_readiness_checks=True)
+    status = "ready" if healthy else "unready"
+    code = 200 if healthy else 503
+    return jsonify({"status": status, "checks": checks}), code
 
 # --- Application Startup ---
 start_discovery()
