@@ -1,3 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "google-home-streamer"
+version = "0.1.0"
+description = "Stream ambient audio to Google Home and Chromecast devices."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "James Gonzalez" }]
+dependencies = [
+    "Flask==3.0.3",
+    "gunicorn==22.0.0",
+    "pychromecast==14.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6.0",
+]
+test = ["pytest>=8"]
+
 [tool.ruff]
 line-length = 88
 

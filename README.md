@@ -15,23 +15,38 @@ A simple web application to stream audio to your Google Home and Chromecast devi
 
 ### Running Locally
 
+> Requires Python 3.11 or newer.
+
 1.  **Clone the repository:**
     ```bash
     git clone https://github.com/james-gonzalez/google-home-streamer.git
     cd google-home-streamer
     ```
 
-2.  **Install dependencies:**
+2.  **Install dependencies with uv (runtime + dev extras):**
     ```bash
-    pip install -r requirements.txt
+    uv sync --extra dev --no-install-project
+    ```
+    This will create a `.venv/` folder populated with runtime, lint, and test tools.
+
+3.  **Activate the virtual environment:**
+    ```bash
+    source .venv/bin/activate
     ```
 
-3.  **Run the application:**
+4.  **Run the application:**
     ```bash
-    python3 app.py
+    python app.py
     ```
 
-4.  Open your browser and navigate to `http://127.0.0.1:8000`.
+5.  Open your browser and navigate to `http://127.0.0.1:8000`.
+
+### Running Tests
+
+```bash
+uv sync --extra dev --no-install-project
+.venv/bin/pytest
+```
 
 ### Running with a Container
 

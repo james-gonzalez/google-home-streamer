@@ -4,15 +4,23 @@ FROM python:3.13-slim-bullseye
 # Set the working directory in the container
 WORKDIR /app
 
-# Copy the dependencies file to the working directory
-COPY requirements.txt .
-
-# Install any needed packages specified in requirements.txt
+# Install uv so we can sync dependencies from pyproject metadata
 RUN python -m pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir uv
+
+# Copy dependency metadata separately for better layer caching
+COPY pyproject.toml uv.lock ./
+
+# Sync only runtime dependencies into a virtual environment
+RUN uv sync --frozen --no-install-project && \
+    rm -rf ~/.cache/uv
 
 # Copy the rest of the application's code to the working directory
 COPY . .
+
+# Ensure the uv-managed virtual environment is used
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:${PATH}"
 
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
