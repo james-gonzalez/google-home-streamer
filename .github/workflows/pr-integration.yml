@@ -1,0 +1,55 @@
+name: PR Integration
+
+on:
+  pull_request:
+    branches:
+      - "*"
+
+jobs:
+  kind-integration:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+
+      - name: Sync dependencies
+        run: uv sync --extra dev --no-install-project
+
+      - name: Lint with Ruff
+        run: .venv/bin/ruff check .
+
+      - name: Test with Pytest
+        run: .venv/bin/pytest
+
+      - name: Build Docker image
+        run: docker build -t streamer:test .
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.8.0
+        with:
+          cluster_name: streamer
+
+      - name: Load image into kind
+        run: kind load docker-image streamer:test --name streamer
+
+      - name: Deploy to cluster
+        run: |
+          kubectl apply -f deployment.yaml
+          kubectl patch deployment/streamer --type='json' -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
+          kubectl set image deployment/streamer streamer=streamer:test
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/streamer --timeout=180s
