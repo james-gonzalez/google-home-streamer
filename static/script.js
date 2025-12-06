@@ -158,14 +158,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     refreshButton.addEventListener('click', updateStatus);
-    volumeUp.addEventListener('click', () => changeVolume(1));
-    volumeDown.addEventListener('click', () => changeVolume(-1));
-    volumeUp.addEventListener('mousedown', () => startHold(1));
-    volumeDown.addEventListener('mousedown', () => startHold(-1));
-    ['mouseup', 'mouseleave', 'mouseout'].forEach(evt => {
-        volumeUp.addEventListener(evt, stopHold);
-        volumeDown.addEventListener(evt, stopHold);
-    });
+    const attachPressControl = (el, delta) => {
+        const onDown = (event) => {
+            event.preventDefault();
+            changeVolume(delta);
+            startHold(delta);
+        };
+        const onUp = (event) => {
+            event.preventDefault();
+            stopHold();
+        };
+        el.addEventListener('pointerdown', onDown);
+        ['pointerup', 'pointerleave', 'pointercancel'].forEach(evt => {
+            el.addEventListener(evt, onUp);
+        });
+    };
+    attachPressControl(volumeUp, 1);
+    attachPressControl(volumeDown, -1);
     playButton.addEventListener('click', () => controlPlayback('play'));
     stopButton.addEventListener('click', () => controlPlayback('stop'));
 
