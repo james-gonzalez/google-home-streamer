@@ -18,7 +18,6 @@ from flask import (
     send_from_directory,
 )
 from pychromecast.discovery import AbstractCastListener, CastBrowser, CastInfo
-from pychromecast.error import PyChromecastError
 from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
