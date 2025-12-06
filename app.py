@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 FILE_NAME: str = "white-noise-20m.mp3"
 PORT: int = 8000
 STREAM_URL: Optional[str] = os.getenv("STREAM_URL")
+AUTO_START_DISCOVERY: bool = os.getenv("AUTO_START_DISCOVERY", "1") == "1"
 
 # --- Global state for discovery and playback ---
 cast_threads: Dict[str, "CastThread"] = {}
@@ -39,6 +40,7 @@ discovery_lock = threading.Lock()
 zconf: Optional[Zeroconf] = None
 active_cast_name: Optional[str] = None
 state_lock = threading.Lock()
+volume_by_device: Dict[str, float] = {}
 
 HealthReport = Dict[str, Dict[str, Any]]
 
@@ -240,7 +242,20 @@ def get_status() -> Response:
         device_names = sorted(discovered_casts.keys())
     with state_lock:
         active_device = active_cast_name
-    return jsonify({"devices": device_names, "playing_device": active_device})
+        volume_snapshot = dict(volume_by_device)
+    currently_playing = (
+        {"device": active_device, "volume": volume_snapshot.get(active_device)}
+        if active_device
+        else None
+    )
+    return jsonify(
+        {
+            "devices": device_names,
+            "playing_device": active_device,
+            "volumes": volume_snapshot,
+            "currently_playing": currently_playing,
+        }
+    )
 
 
 @app.route("/play", methods=["POST"])
@@ -286,6 +301,8 @@ def play() -> Response:
     cast.quit_app()
     time.sleep(1)
     cast.set_volume(volume)
+    with state_lock:
+        volume_by_device[device_name] = volume
 
     if STREAM_URL:
         stream_url = STREAM_URL
@@ -357,6 +374,8 @@ def set_volume() -> Response:
     print(f"[{device_name}] Setting volume to {volume}")
     cast.wait()
     cast.set_volume(volume)
+    with state_lock:
+        volume_by_device[device_name] = volume
     return jsonify({"status": "volume updated"})
 
 
@@ -381,8 +400,9 @@ def health_ready() -> Response:
     return jsonify({"status": status, "checks": checks}), code
 
 # --- Application Startup ---
-start_discovery()
-atexit.register(stop_discovery)
+if AUTO_START_DISCOVERY:
+    start_discovery()
+    atexit.register(stop_discovery)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=True, use_reloader=False)
