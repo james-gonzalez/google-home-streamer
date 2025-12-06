@@ -32,10 +32,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // Set the default selection
             if (data.devices.includes("Alejandro")) {
                 devicesSelect.value = "Alejandro";
-            } else if (data.playing_device) {
-                devicesSelect.value = data.playing_device;
             } else if (currentSelection && data.devices.includes(currentSelection)) {
                 devicesSelect.value = currentSelection;
+            } else if (data.devices.length) {
+                devicesSelect.value = data.devices[0];
             }
 
             statusDiv.textContent = 'Scan complete.';

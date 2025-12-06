@@ -53,7 +53,7 @@ uv sync --extra dev --no-install-project
 The service exposes health probes suitable for container orchestration:
 
 - `GET /health/live` validates the Zeroconf discovery thread and confirms the audio asset is readable. Failures here signal the container should be restarted.
-- `GET /health/ready` extends the checks above and ensures any active playback threads are still alive before the instance receives traffic.
+- `GET /health/ready` extends the checks above and verifies the service can construct a streaming URL (using `STREAM_URL`, `PUBLIC_BASE_URL`, or the incoming request host) before the instance receives traffic.
 
 ### Running with a Container
 
@@ -74,6 +74,13 @@ The application is published as a multi-platform container image to the GitHub C
     ```
 
 3.  Open your browser and navigate to `http://<your-host-ip>:8000`.
+
+### Stateless & Load-Balanced Deployments
+
+- The app is stateless; any instance can handle requests. Place multiple replicas behind a load balancer without needing sticky sessions.
+- Ensure Chromecasts resolve the same streaming host from every replica by setting `PUBLIC_BASE_URL` (for example, `http://streamer.lan:8000`) or `STREAM_URL` to a fully-qualified audio URL.
+- Host networking is still required for multicast discovery. In Kubernetes, schedule replicas onto different nodes when using `hostNetwork: true` to avoid port conflicts.
+- You can disable auto-start discovery for tests or local tooling with `AUTO_START_DISCOVERY=0`.
 
 ## CI/CD Pipeline
 
