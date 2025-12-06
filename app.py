@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 from typing import Any, Dict, Optional, Tuple
+from uuid import UUID
 
 import pychromecast
 from flask import (
@@ -16,8 +17,8 @@ from flask import (
     request,
     send_from_directory,
 )
-from pychromecast.discovery import CastBrowser, CastInfo
-from pychromecast.error import NotConnected, PyChromecastError, RequestFailed
+from pychromecast.discovery import AbstractCastListener, CastBrowser, CastInfo
+from pychromecast.error import PyChromecastError
 from zeroconf import Zeroconf
 
 # Suppress excessive zeroconf logging
@@ -30,39 +31,47 @@ logger = logging.getLogger(__name__)
 FILE_NAME: str = "white-noise-20m.mp3"
 PORT: int = 8000
 STREAM_URL: Optional[str] = os.getenv("STREAM_URL")
+PUBLIC_BASE_URL: Optional[str] = os.getenv("PUBLIC_BASE_URL")
+AUTO_START_DISCOVERY: bool = os.getenv("AUTO_START_DISCOVERY", "1") == "1"
 
-# --- Global state for discovery and playback ---
-cast_threads: Dict[str, "CastThread"] = {}
+# --- Global state for discovery ---
 discovered_casts: Dict[str, Any] = {}
 browser: Optional[CastBrowser] = None
 discovery_lock = threading.Lock()
 zconf: Optional[Zeroconf] = None
-active_cast_name: Optional[str] = None
-state_lock = threading.Lock()
 
 HealthReport = Dict[str, Dict[str, Any]]
 
 
-class MyCastListener(pychromecast.CastListener):
+def _resolve_cast_info(uuid: UUID) -> Optional[CastInfo]:
+    current_browser = browser
+    if current_browser:
+        return current_browser.devices.get(uuid)
+    return None
+
+
+class MyCastListener(AbstractCastListener):
     """Listener for discovering and removing Chromecasts."""
 
-    def add_cast(self, uuid: str, service: Any) -> None:
+    def add_cast(self, uuid: UUID, service: str) -> None:
+        cast = _resolve_cast_info(uuid)
+        if not cast or not cast.friendly_name:
+            return
         with discovery_lock:
-            # The browser object is needed to get the full cast info
-            if browser:
-                cast = browser.devices[uuid]  # type: ignore[index]
-                if cast.friendly_name:
-                    discovered_casts[cast.friendly_name] = cast
-                    print(f"Discovered: {cast.friendly_name}")
+            discovered_casts[cast.friendly_name] = cast
+        print(f"Discovered: {cast.friendly_name}")
 
-    def update_cast(self, uuid: str, service: Any) -> None:
+    def update_cast(self, uuid: UUID, service: str) -> None:
         self.add_cast(uuid, service)
 
-    def remove_cast(self, uuid: str, service: Any, cast_info: CastInfo) -> None:  # type: ignore[override]
+    def remove_cast(self, uuid: UUID, service: str, cast_info: CastInfo) -> None:
+        friendly_name = cast_info.friendly_name
+        if not friendly_name:
+            return
         with discovery_lock:
-            if cast_info.friendly_name in discovered_casts:
-                del discovered_casts[cast_info.friendly_name]
-                print(f"Removed: {cast_info.friendly_name}")
+            if friendly_name in discovered_casts:
+                del discovered_casts[friendly_name]
+        print(f"Removed: {friendly_name}")
 
 
 def start_discovery() -> None:
@@ -93,7 +102,7 @@ def get_cast(name: str) -> Optional["pychromecast.Chromecast"]:
     return None
 
 
-# --- Utility and Playback Thread ---
+# --- Utility helpers ---
 
 
 def get_local_ip() -> str:
@@ -108,60 +117,21 @@ def get_local_ip() -> str:
     return IP
 
 
-class CastThread(threading.Thread):
-    def __init__(
-        self, cast: "pychromecast.Chromecast", stream_url: str, loop: bool
-    ) -> None:
-        super().__init__()
-        self.cast = cast
-        self.stream_url = stream_url
-        self.loop = loop
-        self.mc = cast.media_controller
-        self.stop_event = threading.Event()
+def build_stream_url() -> str:
+    """Construct a stable stream URL usable from any replica."""
+    if STREAM_URL:
+        return STREAM_URL
 
-    def run(self) -> None:
-        self.mc.play_media(self.stream_url, "audio/mpeg")
-        self.mc.block_until_active()
-        time.sleep(2)
+    if PUBLIC_BASE_URL:
+        return f"{PUBLIC_BASE_URL.rstrip('/')}/stream"
 
-        while not self.stop_event.is_set():
-            if (
-                self.loop
-                and self.mc.status
-                and self.mc.status.player_state == "IDLE"
-                and self.mc.status.idle_reason == "FINISHED"
-            ):
-                print(f"[{self.cast.name}] Looping...")
-                self.mc.play_media(self.stream_url, "audio/mpeg")
-                self.mc.block_until_active()
-            time.sleep(1)
+    # Fall back to the request host if we have one, otherwise local IP.
+    if request and request.host_url:
+        host_url = request.host_url.rstrip("/")
+        return f"{host_url}/stream"
 
-        try:
-            self.mc.update_status()
-        except PyChromecastError as err:
-            logger.debug(
-                "[%s] Unable to refresh status before stopping: %s", self.cast.name, err
-            )
-        status = self.mc.status
-
-        if status and status.player_state != "IDLE":
-            try:
-                self.mc.stop()
-            except RequestFailed:
-                logger.warning(
-                    "[%s] Stop command rejected; media session already inactive",
-                    self.cast.name,
-                )
-            except (NotConnected, PyChromecastError) as err:
-                logger.warning(
-                    "[%s] Stop command failed due to connection issue: %s",
-                    self.cast.name,
-                    err,
-                )
-        print(f"[{self.cast.name}] Playback stopped.")
-
-    def stop(self) -> None:
-        self.stop_event.set()
+    ip_address = get_local_ip()
+    return f"http://{ip_address}:{PORT}/stream"
 
 
 # --- Flask Routes ---
@@ -198,15 +168,11 @@ def _check_stream_asset() -> Tuple[bool, str]:
     return True, "Stream asset available"
 
 
-def _check_playback_threads() -> Tuple[bool, str]:
-    with state_lock:
-        snapshot = list(cast_threads.items())
-
-    inactive = [name for name, thread in snapshot if not thread.is_alive()]
-    if inactive:
-        return False, f"Playback threads not running: {', '.join(inactive)}"
-
-    return True, "All playback threads healthy"
+def _check_stream_url() -> Tuple[bool, str]:
+    stream_url = build_stream_url()
+    if stream_url.startswith("http://") or stream_url.startswith("https://"):
+        return True, f"Streaming from {stream_url}"
+    return False, "Invalid stream URL"
 
 
 def _evaluate_health(include_readiness_checks: bool) -> Tuple[bool, HealthReport]:
@@ -222,9 +188,9 @@ def _evaluate_health(include_readiness_checks: bool) -> Tuple[bool, HealthReport
     ok = ok and asset_ok
 
     if include_readiness_checks:
-        playback_ok, playback_detail = _check_playback_threads()
-        checks["playback_threads"] = {"ok": playback_ok, "detail": playback_detail}
-        ok = ok and playback_ok
+        stream_ok, stream_detail = _check_stream_url()
+        checks["stream_url"] = {"ok": stream_ok, "detail": stream_detail}
+        ok = ok and stream_ok
 
     return ok, checks
 
@@ -238,14 +204,12 @@ def index() -> str:
 def get_status() -> Response:
     with discovery_lock:
         device_names = sorted(discovered_casts.keys())
-    with state_lock:
-        active_device = active_cast_name
-    return jsonify({"devices": device_names, "playing_device": active_device})
+
+    return jsonify({"devices": device_names})
 
 
 @app.route("/play", methods=["POST"])
 def play() -> Response:
-    global active_cast_name
     data = request.json
     if not data:
         return make_response(
@@ -267,45 +231,22 @@ def play() -> Response:
             jsonify({"status": "error", "message": "Device not found"}), 404
         )
 
-    # Stop all other playing threads to ensure only one stream is active
-    with state_lock:
-        for name, thread in list(cast_threads.items()):
-            if name != device_name:
-                print(f"Stopping playback on {name} to switch to {device_name}")
-                thread.stop()
-                thread.join()
-                del cast_threads[name]
-
-        # Stop the current thread if it exists, to restart it
-        if device_name in cast_threads:
-            cast_threads[device_name].stop()
-            cast_threads[device_name].join()
-
     cast.wait()
     print(f"[{device_name}] Quitting current app to ensure clean state.")
     cast.quit_app()
     time.sleep(1)
     cast.set_volume(volume)
 
-    if STREAM_URL:
-        stream_url = STREAM_URL
-    else:
-        ip_address = get_local_ip()
-        stream_url = f"http://{ip_address}:{PORT}/stream"
+    stream_url = build_stream_url()
+    cast.media_controller.play_media(stream_url, "audio/mpeg")
+    if loop:
+        cast.media_controller.block_until_active()
 
-    thread = CastThread(cast, stream_url, loop)
-    cast_threads[device_name] = thread
-    thread.start()
-
-    with state_lock:
-        active_cast_name = device_name
-
-    return jsonify({"status": "playing"})
+    return jsonify({"status": "playing", "stream_url": stream_url})
 
 
 @app.route("/stop", methods=["POST"])
 def stop() -> Response:
-    global active_cast_name
     data = request.json
     if not data:
         return make_response(
@@ -313,19 +254,10 @@ def stop() -> Response:
         )
     device_name = data.get("device_name")
 
-    if device_name in cast_threads:
-        cast_threads[device_name].stop()
-        cast_threads[device_name].join()
-        del cast_threads[device_name]
-
     cast = get_cast(device_name)
     if cast:
         cast.wait()
         cast.quit_app()
-
-    with state_lock:
-        if active_cast_name == device_name:
-            active_cast_name = None
 
     return jsonify({"status": "stopped"})
 
@@ -381,8 +313,9 @@ def health_ready() -> Response:
     return jsonify({"status": status, "checks": checks}), code
 
 # --- Application Startup ---
-start_discovery()
-atexit.register(stop_discovery)
+if AUTO_START_DISCOVERY:
+    start_discovery()
+    atexit.register(stop_discovery)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=True, use_reloader=False)
