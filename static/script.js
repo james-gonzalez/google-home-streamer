@@ -1,15 +1,85 @@
 document.addEventListener('DOMContentLoaded', () => {
     const devicesSelect = document.getElementById('devices');
     const refreshButton = document.getElementById('refresh');
-    const volumeSlider = document.getElementById('volume');
-    const volumeLabel = document.getElementById('volume-label');
+    const volumeUp = document.getElementById('volume-up');
+    const volumeDown = document.getElementById('volume-down');
+    const nowPlaying = document.getElementById('now-playing');
+    const nowVolume = document.getElementById('now-volume');
+    const deviceCount = document.getElementById('device-count');
     const loopCheckbox = document.getElementById('loop');
     const playButton = document.getElementById('play');
     const stopButton = document.getElementById('stop');
     const statusDiv = document.getElementById('status');
+    let volumeValue = 10;
+    let holdTimer = null;
+    let holdInterval = null;
+    let pendingVolumeRequest = null;
+    let playingDevice = null;
 
     const updateVolumeLabel = () => {
-        volumeLabel.textContent = `${volumeSlider.value}%`;
+        if (playingDevice && playingDevice === devicesSelect.value) {
+            nowVolume.textContent = `${volumeValue}%`;
+        }
+    };
+
+    const sendVolume = async () => {
+        const device = devicesSelect.value;
+        if (!device) {
+            return;
+        }
+        try {
+            await fetch('/volume', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    device_name: device,
+                    volume: volumeValue / 100,
+                }),
+            });
+        } catch (error) {
+            statusDiv.textContent = 'Error updating volume.';
+            console.error(error);
+        }
+    };
+
+    const scheduleVolumeUpdate = () => {
+        if (pendingVolumeRequest) {
+            clearTimeout(pendingVolumeRequest);
+        }
+        pendingVolumeRequest = setTimeout(() => {
+            pendingVolumeRequest = null;
+            void sendVolume();
+        }, 150);
+    };
+
+    const changeVolume = (delta) => {
+        const next = Math.max(0, Math.min(100, volumeValue + delta));
+        if (next === volumeValue) return;
+        volumeValue = next;
+        updateVolumeLabel();
+        if (playingDevice && playingDevice === devicesSelect.value) {
+            nowVolume.textContent = `${volumeValue}%`;
+        }
+        scheduleVolumeUpdate();
+    };
+
+    const startHold = (delta) => {
+        holdTimer = setTimeout(() => {
+            holdInterval = setInterval(() => changeVolume(delta * 5), 120);
+        }, 1000);
+    };
+
+    const stopHold = () => {
+        if (holdTimer) {
+            clearTimeout(holdTimer);
+            holdTimer = null;
+        }
+        if (holdInterval) {
+            clearInterval(holdInterval);
+            holdInterval = null;
+        }
     };
 
     const updateStatus = async () => {
@@ -20,6 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("Received data:", data); // Log the data for debugging
 
             const currentSelection = devicesSelect.value;
+            const volumes = data.volumes || {};
             
             devicesSelect.innerHTML = '';
             data.devices.forEach(device => {
@@ -32,13 +103,26 @@ document.addEventListener('DOMContentLoaded', () => {
             // Set the default selection
             if (data.devices.includes("Alejandro")) {
                 devicesSelect.value = "Alejandro";
-            } else if (data.playing_device) {
-                devicesSelect.value = data.playing_device;
             } else if (currentSelection && data.devices.includes(currentSelection)) {
                 devicesSelect.value = currentSelection;
+            } else if (data.devices.length) {
+                devicesSelect.value = data.devices[0];
             }
 
             statusDiv.textContent = 'Scan complete.';
+            deviceCount.textContent = `${data.devices.length} found`;
+
+            const playing = data.currently_playing;
+            playingDevice = playing && playing.device ? playing.device : null;
+            nowPlaying.textContent = playingDevice || 'Nothing playing';
+            const playingVolume = playing && typeof playing.volume === 'number' ? Math.round(playing.volume * 100) : null;
+            nowVolume.textContent = playingVolume !== null ? `${playingVolume}%` : '--%';
+
+            const selectedVolume = volumes[devicesSelect.value];
+            if (typeof selectedVolume === 'number') {
+                volumeValue = Math.round(selectedVolume * 100);
+                updateVolumeLabel();
+            }
         } catch (error) {
             statusDiv.textContent = 'Error finding devices.';
             console.error(error);
@@ -60,7 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
                 body: JSON.stringify({
                     device_name: device,
-                    volume: parseInt(volumeSlider.value, 10) / 100,
+                    volume: volumeValue / 100,
                     loop: loopCheckbox.checked,
                 }),
             });
@@ -73,35 +157,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const setVolume = async () => {
-        const device = devicesSelect.value;
-        if (!device) {
-            return;
-        }
-        try {
-            await fetch('/volume', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    device_name: device,
-                    volume: parseInt(volumeSlider.value, 10) / 100,
-                }),
-            });
-        } catch (error) {
-            statusDiv.textContent = 'Error updating volume.';
-            console.error(error);
-        }
-    };
-
     refreshButton.addEventListener('click', updateStatus);
-    volumeSlider.addEventListener('input', updateVolumeLabel);
-    volumeSlider.addEventListener('change', setVolume);
+    volumeUp.addEventListener('click', () => changeVolume(1));
+    volumeDown.addEventListener('click', () => changeVolume(-1));
+    volumeUp.addEventListener('mousedown', () => startHold(1));
+    volumeDown.addEventListener('mousedown', () => startHold(-1));
+    ['mouseup', 'mouseleave', 'mouseout'].forEach(evt => {
+        volumeUp.addEventListener(evt, stopHold);
+        volumeDown.addEventListener(evt, stopHold);
+    });
     playButton.addEventListener('click', () => controlPlayback('play'));
     stopButton.addEventListener('click', () => controlPlayback('stop'));
 
     // Initial load
-    updateVolumeLabel();
     updateStatus();
 });

@@ -13,35 +13,61 @@
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <div class="container">
-      <div class="card">
-        <div class="card-body">
-          <h1 class="card-title text-center mb-4">Google Home Streamer</h1>
+    <div class="app-shell container">
+      <div class="card shadow-lg glassy">
+        <div class="card-body p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <div class="eyebrow">Google Home Streamer</div>
+              <h1 class="h4 fw-bold mb-0">White Noise</h1>
+            </div>
+            <span class="badge text-bg-success" id="device-count">0 found</span>
+          </div>
 
-          <div class="mb-3">
-            <label for="devices" class="form-label">Select a Speaker</label>
-            <div class="input-group">
-              <select class="form-select" id="devices"></select>
-              <button class="btn btn-outline-secondary" id="refresh">Refresh</button>
+          <div class="status-pill mb-3">
+            <div>
+              <div class="label">Now playing</div>
+              <div class="value" id="now-playing">Nothing playing</div>
+            </div>
+            <div>
+              <div class="label">Volume</div>
+              <div class="value" id="now-volume">--%</div>
             </div>
           </div>
 
           <div class="mb-3">
-            <label for="volume" class="form-label">Volume: <span id="volume-label">10%</span></label>
-            <input type="range" class="form-range" id="volume" min="0" max="100" value="10" />
+            <label for="devices" class="form-label">Speaker</label>
+            <div class="input-group input-group-lg">
+              <select class="form-select" id="devices"></select>
+              <button class="btn btn-outline-light" id="refresh" type="button">Refresh</button>
+            </div>
           </div>
 
-          <div class="form-check mb-4">
+          <div class="control-grid">
+            <button class="btn btn-primary btn-lg control-btn" id="play">
+              <span class="icon">▶</span>
+              <span>Start</span>
+            </button>
+            <button class="btn btn-secondary btn-lg control-btn" id="stop">
+              <span class="icon">■</span>
+              <span>Stop</span>
+            </button>
+            <button class="btn btn-outline-light btn-lg control-btn" id="volume-down">
+              <span class="icon">−</span>
+              <span>Vol Down</span>
+            </button>
+            <button class="btn btn-outline-light btn-lg control-btn" id="volume-up">
+              <span class="icon">+</span>
+              <span>Vol Up</span>
+            </button>
+          </div>
+
+          <div class="form-check form-switch mb-3">
             <input class="form-check-input" type="checkbox" id="loop" checked />
-            <label class="form-check-label" for="loop"> Loop Playback </label>
+            <label class="form-check-label" for="loop">Loop playback</label>
           </div>
 
-          <div class="d-grid gap-2">
-            <button class="btn btn-success btn-lg" id="play">Play</button>
-            <button class="btn btn-danger btn-lg" id="stop">Stop</button>
-          </div>
-
-          <div id="status" class="text-center text-muted mt-3"></div>
+          <div id="status" class="text-center text-muted mt-2 small"></div>
         </div>
       </div>
     </div>

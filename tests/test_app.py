@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
+os.environ.setdefault("AUTO_START_DISCOVERY", "0")
+
 import app as app_module
 from app import app as flask_app
 
