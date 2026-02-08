@@ -18,7 +18,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install uv
         run: |
@@ -27,6 +27,12 @@ jobs:
 
       - name: Sync dependencies
         run: uv sync --extra dev --no-install-project
+
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
 
       - name: Lint with Ruff
         run: .venv/bin/ruff check .
@@ -53,3 +59,10 @@ jobs:
 
       - name: Wait for rollout
         run: kubectl rollout status deployment/streamer --timeout=180s
+
+      - name: Verify health endpoints
+        run: |
+          kubectl port-forward deployment/streamer 8000:8000 &
+          sleep 5
+          curl -sf http://localhost:8000/health/live || exit 1
+          curl -sf http://localhost:8000/health/ready || exit 1

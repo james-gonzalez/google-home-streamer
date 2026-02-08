@@ -25,7 +25,19 @@ spec:
           name: http
         env:
         - name: STREAM_URL
-          value: http://streamer.lan:8080/white-noise-20m.mp3
+          value: http://streamer.lan:8000/white-noise-20m.mp3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
         livenessProbe:
           httpGet:
             path: /health/live

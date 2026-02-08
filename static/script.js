@@ -59,9 +59,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (next === volumeValue) return;
         volumeValue = next;
         updateVolumeLabel();
-        if (playingDevice && playingDevice === devicesSelect.value) {
-            nowVolume.textContent = `${volumeValue}%`;
-        }
         scheduleVolumeUpdate();
     };
 
@@ -87,7 +84,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch('/status');
             const data = await response.json();
-            console.log("Received data:", data); // Log the data for debugging
 
             const currentSelection = devicesSelect.value;
             const volumes = data.volumes || {};
@@ -100,10 +96,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 devicesSelect.appendChild(option);
             });
 
-            // Set the default selection
-            if (data.devices.includes("Alejandro")) {
-                devicesSelect.value = "Alejandro";
-            } else if (currentSelection && data.devices.includes(currentSelection)) {
+            // Restore previous selection or pick the first device
+            if (currentSelection && data.devices.includes(currentSelection)) {
                 devicesSelect.value = currentSelection;
             } else if (data.devices.length) {
                 devicesSelect.value = data.devices[0];
@@ -129,15 +123,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const setControlsEnabled = (enabled) => {
+        [playButton, stopButton, volumeUp, volumeDown, refreshButton].forEach(btn => {
+            btn.disabled = !enabled;
+        });
+    };
+
     const controlPlayback = async (action) => {
         const device = devicesSelect.value;
         if (!device) {
             statusDiv.textContent = 'Please select a device.';
             return;
         }
+        setControlsEnabled(false);
         statusDiv.textContent = `${action.charAt(0).toUpperCase() + action.slice(1)}ing...`;
         try {
-            await fetch(`/${action}`, {
+            const response = await fetch(`/${action}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -148,12 +149,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     loop: loopCheckbox.checked,
                 }),
             });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                statusDiv.textContent = err.message || `Error ${action}ing playback.`;
+                return;
+            }
             statusDiv.textContent = `Playback ${action}ed.`;
-            // Refresh the status to update the UI
             await updateStatus();
         } catch (error) {
             statusDiv.textContent = `Error ${action}ing playback.`;
             console.error(error);
+        } finally {
+            setControlsEnabled(true);
         }
     };
 
@@ -180,4 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial load
     updateStatus();
+
+    // Auto-refresh device status every 30 seconds
+    setInterval(updateStatus, 30000);
 });
