@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "beta"]
 
 jobs:
   release-and-publish:
@@ -98,6 +98,7 @@ jobs:
           tags: |
             type=raw,value=${{ steps.semantic.outputs.new_release_version }}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}
 
       - name: Build and push Docker image
         if: steps.semantic.outputs.new_release_published == 'true'
