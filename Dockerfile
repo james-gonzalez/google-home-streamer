@@ -28,5 +28,9 @@ EXPOSE 8000
 # Define environment variable
 ENV FLASK_APP app.py
 
-# Run app.py with gunicorn when the container launches (long timeout for streaming)
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "2", "--timeout", "1800", "--graceful-timeout", "1800", "app:app"]
+# Run app.py with gunicorn when the container launches (long timeout for streaming).
+# MUST stay at a single worker: CastManager is an in-process singleton (mDNS discovery,
+# device registry, playback threads all live in process memory). A second worker means a
+# second process with its own divergent state and competing cast connections, which breaks
+# discovery/playback. Use threads (not workers) for request concurrency.
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "2", "--timeout", "1800", "--graceful-timeout", "1800", "app:app"]
