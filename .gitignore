@@ -7,3 +7,6 @@ yarn-error.log
 # Python
 __pycache__/
 .venv/
+
+# AI Tooling
+graphify-out
