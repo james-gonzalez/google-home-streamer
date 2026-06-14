@@ -25,7 +25,7 @@ spec:
           name: http
         env:
         - name: STREAM_URL
-          value: http://streamer.lan:8000/white-noise-20m.mp3
+          value: http://streamer.lan:8000/stream
         resources:
           requests:
             cpu: 100m
