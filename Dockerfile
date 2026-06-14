@@ -1,32 +1,36 @@
 # Use an official Python runtime as a parent image
 FROM python:3.14-slim-bookworm
 
+# Bring in uv directly from its official image -- no pip bootstrap needed.
+# The pinned tag is kept up to date by Renovate (Docker manager).
+COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /uvx /bin/
+
 # Set the working directory in the container
 WORKDIR /app
 
-# Install uv so we can sync dependencies from pyproject metadata
-RUN python -m pip install --upgrade pip && \
-    pip install --no-cache-dir uv
+# uv build tuning: compile bytecode for faster cold starts and copy (don't
+# hardlink) packages out of the cache mount to avoid cross-filesystem warnings.
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
-# Copy dependency metadata separately for better layer caching
+# Install runtime dependencies in an isolated layer for better caching.
+# --no-install-project: the app runs as a module (app:app), not an installed
+# package. A BuildKit cache mount keeps the uv cache out of the image layer.
 COPY pyproject.toml uv.lock ./
-
-# Sync only runtime dependencies into a virtual environment
-RUN uv sync --frozen --no-install-project && \
-    rm -rf ~/.cache/uv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project
 
 # Copy the rest of the application's code to the working directory
 COPY . .
 
-# Ensure the uv-managed virtual environment is used
-ENV VIRTUAL_ENV=/app/.venv
+# Run inside the uv-managed virtual environment.
 ENV PATH="/app/.venv/bin:${PATH}"
 
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
 
 # Define environment variable
-ENV FLASK_APP app.py
+ENV FLASK_APP=app.py
 
 # Run app.py with gunicorn when the container launches (long timeout for streaming).
 # MUST stay at a single worker: CastManager is an in-process singleton (mDNS discovery,
