@@ -14,8 +14,8 @@
     "url": "git+https://github.com/james-gonzalez/google-home-streamer.git"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "James Gonzalez",
+  "license": "Apache-2.0",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/james-gonzalez/google-home-streamer/issues"
