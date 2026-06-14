@@ -15,7 +15,7 @@ A simple web application to stream audio to your Google Home and Chromecast devi
 
 ### Running Locally
 
-> Requires Python 3.11 or newer.
+> Requires Python 3.14 or newer.
 
 1.  **Clone the repository:**
     ```bash
