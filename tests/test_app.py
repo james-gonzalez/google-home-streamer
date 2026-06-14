@@ -403,3 +403,124 @@ def test_cast_manager_build_status_dict_none():
     assert result["volume"] is None
     assert result["player_state"] is None
     assert result["is_playing"] is False
+
+
+# --- CastManager play/stop orchestration ---
+
+
+@pytest.fixture
+def clean_manager(manager):
+    """Reset all mutable manager state before and after a test."""
+
+    def _reset():
+        with manager._lock:
+            manager._cast_threads.clear()
+            manager._discovered_casts.clear()
+            manager._volume_by_device.clear()
+            manager._active_cast_name = None
+
+    _reset()
+    yield manager
+    _reset()
+
+
+def test_play_device_not_found_returns_false(clean_manager):
+    """play() reports failure when the device cannot be resolved."""
+    with patch.object(clean_manager, "get_cast", return_value=None):
+        success, message = clean_manager.play("Ghost", 0.2, True, "http://x/stream")
+    assert success is False
+    assert message == "Device not found"
+    assert clean_manager.active_device is None
+
+
+def test_play_starts_thread_and_records_state(clean_manager):
+    """play() starts a thread, sets volume, and records active device/volume."""
+    fake_cast = MagicMock()
+    with (
+        patch.object(clean_manager, "get_cast", return_value=fake_cast),
+        patch.object(app_module, "CastThread") as fake_thread_cls,
+        patch.object(app_module.time, "sleep"),
+    ):
+        success, message = clean_manager.play(
+            "Living Room", 0.3, True, "http://x/stream"
+        )
+
+    assert (success, message) == (True, "playing")
+    fake_cast.set_volume.assert_called_once_with(0.3)
+    fake_cast.quit_app.assert_called_once()
+    fake_thread_cls.assert_called_once_with(fake_cast, "http://x/stream", True)
+    fake_thread_cls.return_value.start.assert_called_once()
+    assert clean_manager.active_device == "Living Room"
+    assert clean_manager.volumes["Living Room"] == 0.3
+
+
+def test_play_switches_device_stops_previous(clean_manager):
+    """Starting playback on a new device stops the previously active thread."""
+    old_thread = MagicMock()
+    with clean_manager._lock:
+        clean_manager._cast_threads["Old Device"] = old_thread
+        clean_manager._active_cast_name = "Old Device"
+
+    fake_cast = MagicMock()
+    with (
+        patch.object(clean_manager, "get_cast", return_value=fake_cast),
+        patch.object(app_module, "CastThread") as fake_thread_cls,
+        patch.object(app_module.time, "sleep"),
+    ):
+        success, _ = clean_manager.play("New Device", 0.4, False, "http://x/stream")
+
+    assert success is True
+    old_thread.request_stop.assert_called_once()
+    old_thread.join.assert_called_once()
+    snapshot = clean_manager.cast_threads_snapshot
+    assert "Old Device" not in snapshot
+    assert snapshot["New Device"] is fake_thread_cls.return_value
+    assert clean_manager.active_device == "New Device"
+
+
+def test_play_restarts_same_device(clean_manager):
+    """Replaying the same device stops the existing thread before starting anew."""
+    existing = MagicMock()
+    with clean_manager._lock:
+        clean_manager._cast_threads["Speaker"] = existing
+        clean_manager._active_cast_name = "Speaker"
+
+    fake_cast = MagicMock()
+    with (
+        patch.object(clean_manager, "get_cast", return_value=fake_cast),
+        patch.object(app_module, "CastThread") as fake_thread_cls,
+        patch.object(app_module.time, "sleep"),
+    ):
+        clean_manager.play("Speaker", 0.5, True, "http://x/stream")
+
+    existing.request_stop.assert_called_once()
+    existing.join.assert_called_once()
+    snapshot = clean_manager.cast_threads_snapshot
+    assert snapshot["Speaker"] is fake_thread_cls.return_value
+
+
+def test_stop_stops_thread_and_clears_active(clean_manager):
+    """stop() halts the thread, quits the app, and clears active device."""
+    thread = MagicMock()
+    fake_cast = MagicMock()
+    with clean_manager._lock:
+        clean_manager._cast_threads["Speaker"] = thread
+        clean_manager._active_cast_name = "Speaker"
+
+    with patch.object(clean_manager, "get_cast", return_value=fake_cast):
+        message = clean_manager.stop("Speaker")
+
+    assert message == "stopped"
+    thread.request_stop.assert_called_once()
+    thread.join.assert_called_once()
+    fake_cast.quit_app.assert_called_once()
+    assert "Speaker" not in clean_manager.cast_threads_snapshot
+    assert clean_manager.active_device is None
+
+
+def test_stop_unknown_device_is_noop(clean_manager):
+    """Stopping a device with no thread still returns 'stopped' without error."""
+    with patch.object(clean_manager, "get_cast", return_value=None):
+        message = clean_manager.stop("Nobody")
+    assert message == "stopped"
+    assert clean_manager.active_device is None
