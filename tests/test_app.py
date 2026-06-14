@@ -524,3 +524,68 @@ def test_stop_unknown_device_is_noop(clean_manager):
         message = clean_manager.stop("Nobody")
     assert message == "stopped"
     assert clean_manager.active_device is None
+
+
+def test_status_does_not_connect_to_idle_devices(client, manager):
+    """Regression: /status must not open connections to idle speakers.
+
+    Connecting to every discovered device wakes its media receiver (the
+    "chiming" bug). With no active device, get_cast/fetch_device_status must
+    not be invoked for any discovered speaker.
+    """
+    with manager._lock:
+        manager._discovered_casts.clear()
+        manager._cast_threads.clear()
+        manager._volume_by_device.clear()
+        manager._active_cast_name = None
+        manager._discovered_casts["Kitchen"] = SimpleNamespace(friendly_name="Kitchen")
+        manager._discovered_casts["Bedroom"] = SimpleNamespace(friendly_name="Bedroom")
+
+    with (
+        patch.object(manager, "get_cast") as mock_get_cast,
+        patch.object(manager, "fetch_device_status") as mock_fetch,
+    ):
+        res = client.get("/status")
+
+    assert res.status_code == 200
+    data = res.get_json()
+    assert sorted(data["devices"]) == ["Bedroom", "Kitchen"]
+    assert data["currently_playing"] is None
+    mock_get_cast.assert_not_called()
+    mock_fetch.assert_not_called()
+
+    with manager._lock:
+        manager._discovered_casts.clear()
+
+
+def test_status_queries_only_active_device(client, manager):
+    """/status fetches status for the active device only, never idle ones."""
+    with manager._lock:
+        manager._discovered_casts.clear()
+        manager._cast_threads.clear()
+        manager._volume_by_device.clear()
+        manager._active_cast_name = "Kitchen"
+        manager._discovered_casts["Kitchen"] = SimpleNamespace(friendly_name="Kitchen")
+        manager._discovered_casts["Bedroom"] = SimpleNamespace(friendly_name="Bedroom")
+
+    with patch.object(
+        manager,
+        "fetch_device_status",
+        return_value={
+            "volume": 0.2,
+            "player_state": "PLAYING",
+            "content_id": "http://x/stream",
+            "title": None,
+            "is_playing": True,
+        },
+    ) as mock_fetch:
+        res = client.get("/status")
+
+    assert res.status_code == 200
+    data = res.get_json()
+    mock_fetch.assert_called_once_with("Kitchen")
+    assert data["currently_playing"]["device"] == "Kitchen"
+
+    with manager._lock:
+        manager._discovered_casts.clear()
+        manager._active_cast_name = None

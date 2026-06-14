@@ -444,26 +444,30 @@ def get_status() -> Response:
     active_device = cast_manager.active_device
     volume_snapshot = cast_manager.volumes
 
+    # Only query the device we are actively streaming to. Querying every
+    # discovered device opens a Chromecast connection to each speaker and wakes
+    # its media receiver (the "chime"). Idle speakers must never be touched
+    # here; this endpoint is polled on load and every 30s.
     statuses: Dict[str, Any] = {}
     currently_playing = None
-    for name in device_names:
-        status = cast_manager.fetch_device_status(name)
+    if active_device:
+        status = cast_manager.fetch_device_status(active_device)
         if status:
-            statuses[name] = status
+            statuses[active_device] = status
             if status.get("volume") is not None:
-                volume_snapshot[name] = status["volume"]
-            if not currently_playing and status.get("is_playing"):
+                volume_snapshot[active_device] = status["volume"]
+            if status.get("is_playing"):
                 currently_playing = {
-                    "device": name,
+                    "device": active_device,
                     "volume": status.get("volume"),
                     "title": status.get("title"),
                 }
-    if not currently_playing and active_device:
-        currently_playing = {
-            "device": active_device,
-            "volume": volume_snapshot.get(active_device),
-            "title": None,
-        }
+        if not currently_playing:
+            currently_playing = {
+                "device": active_device,
+                "volume": volume_snapshot.get(active_device),
+                "title": None,
+            }
 
     return jsonify(
         {
