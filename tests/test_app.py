@@ -417,6 +417,7 @@ def clean_manager(manager):
             manager._cast_threads.clear()
             manager._discovered_casts.clear()
             manager._volume_by_device.clear()
+            manager._connections.clear()
             manager._active_cast_name = None
 
     _reset()
@@ -589,3 +590,104 @@ def test_status_queries_only_active_device(client, manager):
     with manager._lock:
         manager._discovered_casts.clear()
         manager._active_cast_name = None
+
+
+# --- Connection pooling (Google Home Mini chiming regression) ---
+
+
+def test_get_cast_reuses_pooled_connection(manager, monkeypatch):
+    """get_cast must reuse one connection per device, not open a new one each call.
+
+    Opening a fresh connection per call leaked sockets and exhausted
+    low-slot devices (Google Home Mini), causing LAUNCH_ERROR chiming.
+    """
+    fake_cast = MagicMock()
+    fake_cast.socket_client.is_connected = True
+    factory = MagicMock(return_value=fake_cast)
+
+    with manager._lock:
+        manager._connections.clear()
+        manager._discovered_casts["Mini"] = SimpleNamespace(friendly_name="Mini")
+        manager._zconf = object()
+
+    monkeypatch.setattr(
+        app_module.pychromecast, "get_chromecast_from_cast_info", factory
+    )
+
+    first = manager.get_cast("Mini")
+    second = manager.get_cast("Mini")
+
+    assert first is fake_cast
+    assert second is fake_cast
+    factory.assert_called_once()  # only one real connection opened
+
+    with manager._lock:
+        manager._connections.clear()
+        manager._discovered_casts.clear()
+
+
+def test_get_cast_recreates_dead_connection(manager, monkeypatch):
+    """A disconnected pooled connection is dropped and rebuilt."""
+    dead = MagicMock()
+    dead.socket_client.is_connected = False
+    fresh = MagicMock()
+    fresh.socket_client.is_connected = True
+    factory = MagicMock(return_value=fresh)
+
+    with manager._lock:
+        manager._connections.clear()
+        manager._connections["Mini"] = dead
+        manager._discovered_casts["Mini"] = SimpleNamespace(friendly_name="Mini")
+        manager._zconf = object()
+
+    monkeypatch.setattr(
+        app_module.pychromecast, "get_chromecast_from_cast_info", factory
+    )
+
+    result = manager.get_cast("Mini")
+
+    assert result is fresh
+    dead.disconnect.assert_called_once()
+    factory.assert_called_once()
+
+    with manager._lock:
+        manager._connections.clear()
+        manager._discovered_casts.clear()
+
+
+def test_stop_disconnects_pooled_connection(clean_manager):
+    """stop() releases the device's pooled connection."""
+    thread = MagicMock()
+    fake_cast = MagicMock()
+    with clean_manager._lock:
+        clean_manager._cast_threads["Mini"] = thread
+        clean_manager._connections["Mini"] = fake_cast
+        clean_manager._active_cast_name = "Mini"
+
+    with patch.object(clean_manager, "get_cast", return_value=fake_cast):
+        clean_manager.stop("Mini")
+
+    fake_cast.disconnect.assert_called_once()
+    assert "Mini" not in clean_manager._connections
+
+
+def test_play_disconnects_switched_away_device(clean_manager):
+    """Switching devices frees the previous device's connection."""
+    old_thread = MagicMock()
+    old_cast = MagicMock()
+    with clean_manager._lock:
+        clean_manager._cast_threads["Old"] = old_thread
+        clean_manager._connections["Old"] = old_cast
+        clean_manager._active_cast_name = "Old"
+
+    new_cast = MagicMock()
+    with (
+        patch.object(clean_manager, "get_cast", return_value=new_cast),
+        patch.object(app_module, "CastThread") as fake_thread_cls,
+        patch.object(app_module.time, "sleep"),
+    ):
+        clean_manager.play("New", 0.2, True, "http://x/stream")
+
+    old_cast.disconnect.assert_called_once()
+    assert "Old" not in clean_manager._connections
+    assert fake_thread_cls.return_value.start.called

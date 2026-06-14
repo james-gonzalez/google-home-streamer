@@ -73,9 +73,15 @@ class CastThread(threading.Thread):
     def run(self) -> None:
         try:
             self.mc.play_media(self.stream_url, "audio/mpeg")
-            self.mc.block_until_active()
+            self.mc.block_until_active(timeout=15)
         except PyChromecastError as err:
             logger.error("[%s] Failed to start playback: %s", self.cast.name, err)
+            return
+        if not (self.mc.status and self.mc.status.player_state):
+            logger.error(
+                "[%s] Media session never became active; aborting playback.",
+                self.cast.name,
+            )
             return
         time.sleep(2)
 
@@ -89,7 +95,7 @@ class CastThread(threading.Thread):
                 ):
                     logger.info("[%s] Looping...", self.cast.name)
                     self.mc.play_media(self.stream_url, "audio/mpeg")
-                    self.mc.block_until_active()
+                    self.mc.block_until_active(timeout=15)
             except PyChromecastError as err:
                 logger.warning(
                     "[%s] Error during loop playback: %s", self.cast.name, err
@@ -141,6 +147,11 @@ class CastManager:
         self._zconf: Optional[Zeroconf] = None
         self._active_cast_name: Optional[str] = None
         self._volume_by_device: Dict[str, float] = {}
+        # Pooled Chromecast connections, keyed by friendly name. Reused across
+        # play/stop/volume/status so we never leak sockets. Devices with few
+        # connection slots (e.g. Google Home Mini) exhaust quickly otherwise,
+        # leading to LAUNCH_ERROR retry storms (audible chiming).
+        self._connections: Dict[str, "pychromecast.Chromecast"] = {}
 
     # -- Discovery --
 
@@ -165,6 +176,10 @@ class CastManager:
             browser.stop_discovery()
         if zconf:
             zconf.close()
+        with self._lock:
+            names = list(self._connections.keys())
+        for name in names:
+            self._disconnect_device(name)
 
     def _on_cast_discovered(self, uuid: str) -> None:
         """Called by the listener when a cast device is found or updated."""
@@ -177,10 +192,15 @@ class CastManager:
 
     def _on_cast_removed(self, cast_info: CastInfo) -> None:
         """Called by the listener when a cast device disappears."""
+        name = cast_info.friendly_name
+        removed = False
         with self._lock:
-            if cast_info.friendly_name in self._discovered_casts:
-                del self._discovered_casts[cast_info.friendly_name]
-                logger.info("Removed: %s", cast_info.friendly_name)
+            if name in self._discovered_casts:
+                del self._discovered_casts[name]
+                removed = True
+        if removed:
+            logger.info("Removed: %s", name)
+            self._disconnect_device(name)
 
     # -- Device access --
 
@@ -190,13 +210,51 @@ class CastManager:
             return sorted(self._discovered_casts.keys())
 
     def get_cast(self, name: str) -> Optional["pychromecast.Chromecast"]:
-        """Get a Chromecast connection from a friendly name."""
+        """Return a pooled Chromecast connection for *name*.
+
+        Connections are cached and reused per device. Opening a fresh
+        connection on every call leaks sockets and, on devices with few
+        connection slots (e.g. Google Home Mini), exhausts the device and
+        triggers ``LAUNCH_ERROR`` retry storms (the audible chiming).
+        """
         with self._lock:
+            existing = self._connections.get(name)
             cast_info = self._discovered_casts.get(name)
             zconf = self._zconf
-        if cast_info and zconf:
-            return pychromecast.get_chromecast_from_cast_info(cast_info, zconf)
-        return None
+
+        if existing is not None:
+            socket_client = getattr(existing, "socket_client", None)
+            if socket_client is None or socket_client.is_connected:
+                return existing
+            # Stale/dead connection: drop it and recreate below.
+            self._disconnect_device(name)
+
+        if not (cast_info and zconf):
+            return None
+
+        cast = pychromecast.get_chromecast_from_cast_info(cast_info, zconf)
+        with self._lock:
+            duplicate = self._connections.get(name)
+            if duplicate is None:
+                self._connections[name] = cast
+                return cast
+        # Lost a creation race; discard our extra and reuse the winner.
+        try:
+            cast.disconnect()
+        except PyChromecastError:
+            pass
+        return duplicate
+
+    def _disconnect_device(self, name: str) -> None:
+        """Close and forget the pooled connection for *name*, if any."""
+        with self._lock:
+            cast = self._connections.pop(name, None)
+        if cast is None:
+            return
+        try:
+            cast.disconnect(timeout=5)
+        except PyChromecastError as err:
+            logger.debug("[%s] Error during disconnect: %s", name, err)
 
     # -- Playback --
 
@@ -237,6 +295,12 @@ class CastManager:
             thread.request_stop()
             thread.join(timeout=10)
 
+        # Free connections to devices we switched away from so their slots are
+        # released (keep the target device's pooled connection for playback).
+        for name, _thread in threads_to_stop:
+            if name != device_name:
+                self._disconnect_device(name)
+
         cast.wait()
         logger.info("[%s] Quitting current app to ensure clean state.", device_name)
         cast.quit_app()
@@ -266,6 +330,7 @@ class CastManager:
         if cast:
             cast.wait()
             cast.quit_app()
+        self._disconnect_device(device_name)
 
         with self._lock:
             if self._active_cast_name == device_name:
