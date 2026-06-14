@@ -71,20 +71,29 @@ class CastThread(threading.Thread):
         self.stop_event = threading.Event()
 
     def run(self) -> None:
-        self.mc.play_media(self.stream_url, "audio/mpeg")
-        self.mc.block_until_active()
+        try:
+            self.mc.play_media(self.stream_url, "audio/mpeg")
+            self.mc.block_until_active()
+        except PyChromecastError as err:
+            logger.error("[%s] Failed to start playback: %s", self.cast.name, err)
+            return
         time.sleep(2)
 
         while not self.stop_event.is_set():
-            if (
-                self.loop
-                and self.mc.status
-                and self.mc.status.player_state == "IDLE"
-                and self.mc.status.idle_reason == "FINISHED"
-            ):
-                logger.info("[%s] Looping...", self.cast.name)
-                self.mc.play_media(self.stream_url, "audio/mpeg")
-                self.mc.block_until_active()
+            try:
+                if (
+                    self.loop
+                    and self.mc.status
+                    and self.mc.status.player_state == "IDLE"
+                    and self.mc.status.idle_reason == "FINISHED"
+                ):
+                    logger.info("[%s] Looping...", self.cast.name)
+                    self.mc.play_media(self.stream_url, "audio/mpeg")
+                    self.mc.block_until_active()
+            except PyChromecastError as err:
+                logger.warning(
+                    "[%s] Error during loop playback: %s", self.cast.name, err
+                )
             time.sleep(1)
 
         try:
