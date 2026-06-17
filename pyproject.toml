@@ -13,7 +13,7 @@ authors = [{ name = "James Gonzalez" }]
 dependencies = [
     "Flask==3.0.3",
     "gunicorn==22.0.0",
-    "pychromecast==14.0.9",
+    "pychromecast==14.0.10",
 ]
 
 [project.optional-dependencies]
