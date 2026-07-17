@@ -3,7 +3,7 @@ FROM python:3.14-slim-bookworm
 
 # Bring in uv directly from its official image -- no pip bootstrap needed.
 # The pinned tag is kept up to date by Renovate (Docker manager).
-COPY --from=ghcr.io/astral-sh/uv:0.11.24 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/
 
 # Set the working directory in the container
 WORKDIR /app
